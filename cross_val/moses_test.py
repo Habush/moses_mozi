@@ -1,8 +1,10 @@
-import pandas as pd
+__author_ = 'Xabush Semrie'
+
 import numpy as np
-from sklearn.model_selection import StratifiedShuffleSplit, cross_val_score, cross_val_predict
+
+import pandas as pd
 from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.datasets import load_iris
+from sklearn.model_selection import StratifiedShuffleSplit
 
 from custom_estimator import MosesEstimator
 
@@ -15,9 +17,6 @@ strshuffle = StratifiedShuffleSplit(n_splits=3, test_size=0.3)
 
 moses = MosesEstimator("-j 6")
 
-# scores = cross_val_score(moses, dataset.values, dataset.case, cv=strshuffle, scoring="recall")
-#
-# print scores
 
 
 def custom_cross_val(clf, X, y, cv):

@@ -1,3 +1,5 @@
+__author_ = 'Xabush Semrie'
+
 from sklearn.base import BaseEstimator
 from moses.pymoses import moses
 import numpy as np
