@@ -12,8 +12,8 @@ class MosesTree(Transformer):
         self.res_tree = None
         self.nodes = []
 
-    def mname(self, (s, )):
-        self.root = Node(name=s)
+    def mname(self, s):
+        self.root = Node(name=s[0])
         self.curr = self.root
         self.nodes.append(self.curr)
 
@@ -26,13 +26,13 @@ class MosesTree(Transformer):
         self.curr = self.nodes[-1]
 
 
-    def func_name(self, (s, )):
+    def func_name(self, s):
         self.curr.name = s
         return self.curr
 
-    def name(self, (s, )):
+    def name(self, s):
         self.curr = self.nodes[-1]
-        return Node(name=s, parent=self.curr)
+        return Node(name=s[0], parent=self.curr)
 
     def transform(self, tree):
         super(MosesTree, self).transform(tree)

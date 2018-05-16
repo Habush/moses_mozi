@@ -2,7 +2,7 @@ __author_ = 'Xabush Semrie'
 
 from anytree.exporter import JsonExporter
 from lark import Lark
-from tree_transform import MosesTree
+from viz.tree_transform import MosesTree
 
 grammer = r"""
     
