@@ -4,19 +4,20 @@ import os
 import subprocess
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from pathlib import Path
 
-default_list = "['-j', '6', '--balance', '1', '-m', '10000', '-W1', '1', '--output-cscore', '1', '--result-count', '100', '--reduct-knob-building-effort=1', '--hc-widen-search=1', '--enable-fs=1', '--fs-algo=smd', '--fs-target-size=4', '--hc-crossover-min-neighbors=5000', '--fs-focus=all', '--fs-seed=init', '--complexity-ratio=1', '--hc-fraction-of-nn=.3', '--hc-crossover-pop-size=1000']"
+default_list = "['-j', '6', '--balance', '1', '-m', '1000', '-W1', '1', '--output-cscore', '1', '--result-count', '100', '--reduct-knob-building-effort=1', '--hc-widen-search=1', '--enable-fs=1', '--fs-algo=smd', '--fs-target-size=4', '--hc-crossover-min-neighbors=5000', '--fs-focus=all', '--fs-seed=init', '--complexity-ratio=1', '--hc-fraction-of-nn=.3', '--hc-crossover-pop-size=1000']"
 
 
 class CrossValidaton:
-    def __init__(self, project_id, file_path, test_size, opts=None):
+    def __init__(self, project_id, file_path, test_size, splits, opts=None):
 
         os.chdir("output/")
         self.id = project_id
         self.output = self.id
         self.file = file_path
+
         if opts is None:
             self.opts = default_list
         else:
@@ -28,33 +29,28 @@ class CrossValidaton:
 
         self.dataset = pd.read_csv(self.file)
 
-        self.train, self.test = train_test_split(self.dataset, test_size=self.test_size)
+        self.cv = StratifiedShuffleSplit(n_splits=splits, test_size=test_size)
 
-    def run_moses(self, input_file):
-        self.opts = self.opts.translate(str.maketrans("", "", "[],"))
-        self.opts = "-i {0} -o {1} ".format(input_file, self.output) + self.opts
+        self.test = []
+
+        self.train_file, self.test_file = "train_temp_" + self.id, "test_temp_" + self.id
+
+    def run_moses(self):
+        opts = self.opts.translate(str.maketrans("", "", "[],"))
+        opts = "-i {0} -o {1} ".format(self.train_file, self.output) + opts
         # print self.opts
-        cmd = "moses " + self.opts
+        cmd = "moses " + opts
         print(cmd)
         ret = subprocess.Popen(args=cmd, shell=True).wait()
         print(ret)
         return ret
 
-    def partition(self):
-
-        train_temp, test_temp = "train_temp_" + self.id, "test_temp_" + self.id
-
-        self.train.to_csv(train_temp, sep=',', index=False)
-        self.test.to_csv(test_temp, sep=',', index=False)
-
-        return train_temp, test_temp
-
-    def run_eval(self, test_file):
+    def run_eval(self):
 
         combo_program = self._format_combo(self.output)
         temp_out = "eval_" + self.id
         if combo_program:
-            cmd = "eval-table -i {0} -C {1} -o {2} -u{3}".format(test_file, self.output, temp_out, "case")
+            cmd = "eval-table -i {0} -C {1} -o {2} -u{3}".format(self.test_file, self.output, temp_out, "case")
             print(cmd)
             ret = subprocess.Popen(args=cmd, shell=True).wait()
 
@@ -66,14 +62,18 @@ class CrossValidaton:
         temp_combo = "temp_combo_" + self.id
         cmd = " cut -d\" \" -f1 --complement " + input_file + " > " + "temp_combo_" + self.id + " && cat " + temp_combo + " > " + input_file
         subprocess.Popen(args=cmd, shell=True).wait()
-
+        os.remove(temp_combo)
         return input_file
 
     def build_matrix(self):
         files = list(Path(".").glob("eval_" + self.id + "[0-9]*"))
 
-        return np.array([np.genfromtxt(files[i].name, dtype=int, delimiter="\n", skip_header=1) for i in
-                         range(len(files))]).T  # transpose the matrix
+        matrix = np.array([np.genfromtxt(files[i].name, dtype=int, delimiter="\n", skip_header=1) for i in
+                           range(len(files))]).T  # transpose the matrix
+
+        for file in files: os.remove(file.name)
+
+        return matrix
 
     def reduce_matrix(self):
         matrix = self.build_matrix()
@@ -83,9 +83,6 @@ class CrossValidaton:
     def score(self):
         scores = self.reduce_matrix()
 
-        cases = self.test.loc[:, "case"]
-
-
         print(scores)
 
         print(len(scores))
@@ -93,7 +90,7 @@ class CrossValidaton:
         true_positive, true_negative, false_postive, false_negative = 0, 0, 0, 0
 
         for i in range(len(scores)):
-            if cases.iloc[i] == 0:
+            if self.test.iloc[i] == 0:
                 if scores[i] == 0:
                     true_negative += 1
                 else:
@@ -105,30 +102,46 @@ class CrossValidaton:
                 else:
                     false_negative += 1
 
-        recall = (true_positive / (true_positive + false_negative))*100
+        recall = (true_positive / (true_positive + false_negative)) * 100
 
-        precision = (true_positive / (true_positive + false_postive))*100
+        precision = (true_positive / (true_positive + false_postive)) * 100
 
-        accuracy = ((true_positive + true_negative) / (true_positive + true_negative + false_negative + false_postive))*100
+        accuracy = ((true_positive + true_negative) / (
+            true_positive + true_negative + false_negative + false_postive)) * 100
 
         return recall, precision, accuracy
 
+    def shuffle_split(self):
+        x, y = self.dataset.values, self.dataset.case
+
+        i = 0
+
+        for train_index, test_index in self.cv.split(x, y):
+            x_train, x_test = x[train_index], x[test_index]
+
+            self.output = self.id + "_" + str(i)
+            i += 1
+            self.test = y[test_index]
+
+            pd.DataFrame(x_train, columns=self.dataset.columns.values).to_csv(self.train_file, index=False)
+
+            pd.DataFrame(x_test, columns=self.dataset.columns.values).to_csv(self.test_file, index=False)
+
+            self.run()
+
     def run(self):
-        train_file, test_file = self.partition()
 
         # self.run_eval(test_file)
-        if self.run_moses(train_file) == 0:
-            if self.run_eval(test_file) == 0:
+        if self.run_moses() == 0:
+            if self.run_eval() == 0:
                 print("Successfully finished process!")
 
                 rec, pre, acc = self.score()
 
                 print("Recall: {0:.1f}\tPrecison:{1:.1f}\tAccuracy:{2:.1f}".format(rec, pre, acc))
-                # print("Recall: " + int(rec) + "\tPrecision: " + pre + "\tAccuracy: " + acc)
 
             else:
                 print("Couldn't run evaluation")
-                # print "Success"
 
         else:
             print("Couldn't run moses")
@@ -136,6 +149,6 @@ class CrossValidaton:
 
 if __name__ == "__main__":
     bin_file = "../../data/bin_truncated.csv"
-    cross_val = CrossValidaton("5abcde", bin_file, 0.3)
-    # print(os.getcwd())
-    cross_val.run()
+    cross_val = CrossValidaton("5abcde", bin_file, 0.3, 3)
+
+    cross_val.shuffle_split()
