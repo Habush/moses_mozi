@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from pathlib import Path
+from cross_val.random_seed import RandomSeed
 
 default_list = "['-j', '6', '--balance', '1', '-m', '1000', '-W1', '1', '--output-cscore', '1', '--result-count', '100', '--reduct-knob-building-effort=1', '--hc-widen-search=1', '--enable-fs=1', '--fs-algo=smd', '--fs-target-size=4', '--hc-crossover-min-neighbors=5000', '--fs-focus=all', '--fs-seed=init', '--complexity-ratio=1', '--hc-fraction-of-nn=.3', '--hc-crossover-pop-size=1000']"
 
@@ -46,24 +47,12 @@ class CrossValidaton:
         return ret
 
     def run_eval(self):
-
-        combo_program = self._format_combo(self.output)
         temp_out = "eval_" + self.id
-        if combo_program:
-            cmd = "eval-table -i {0} -C {1} -o {2} -u{3}".format(self.test_file, self.output, temp_out, "case")
-            print(cmd)
-            ret = subprocess.Popen(args=cmd, shell=True).wait()
 
-            return ret
-
-        return -1
-
-    def _format_combo(self, input_file):
-        temp_combo = "temp_combo_" + self.id
-        cmd = " cut -d\" \" -f1 --complement " + input_file + " > " + "temp_combo_" + self.id + " && cat " + temp_combo + " > " + input_file
-        subprocess.Popen(args=cmd, shell=True).wait()
-        os.remove(temp_combo)
-        return input_file
+        cmd = "eval-table -i {0} -C {1} -o {2} -u{3}".format(self.test_file, self.output, temp_out, "case")
+        print(cmd)
+        ret = subprocess.Popen(args=cmd, shell=True).wait()
+        return ret
 
     def build_matrix(self):
         files = list(Path(".").glob("eval_" + self.id + "[0-9]*"))
@@ -119,15 +108,26 @@ class CrossValidaton:
         for train_index, test_index in self.cv.split(x, y):
             x_train, x_test = x[train_index], x[test_index]
 
-            self.output = self.id + "_" + str(i)
-            i += 1
+            self.output = "{0}_fold_{1}".format(self.id, str(i))
+
             self.test = y[test_index]
 
             pd.DataFrame(x_train, columns=self.dataset.columns.values).to_csv(self.train_file, index=False)
 
             pd.DataFrame(x_test, columns=self.dataset.columns.values).to_csv(self.test_file, index=False)
 
-            self.run()
+            randSeed = RandomSeed(self.train_file, self.id, i)
+
+            randSeed.run()
+            self.run_eval()
+
+            print("Successfully finished process!")
+
+            rec, pre, acc = self.score()
+
+            print("Recall: {0:.1f}\tPrecison:{1:.1f}\tAccuracy:{2:.1f}".format(rec, pre, acc))
+
+            i += 1
 
     def run(self):
 
